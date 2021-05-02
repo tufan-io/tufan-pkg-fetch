@@ -1,0 +1,173 @@
+name: tufan base binaries
+
+on:
+  workflow_dispatch:
+    inputs:
+      pkg-fetch-args:
+        description: Extra pkg-fetch args (--force-build/--force-fetch)
+        required: false
+
+jobs:
+  windows-binaries:
+    runs-on: windows-latest
+    timeout-minutes: 240
+
+    strategy:
+      fail-fast: true
+      matrix:
+        target-node: [14]
+        target-arch: [x64] #, arm64
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Use Node.js 14 for base work
+        uses: actions/setup-node@v1
+        with:
+          node-version: 14
+
+      - run: npm ci
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.ACTION_CI }}
+
+      - run: choco install nasm
+
+      - run: npx pkg-fetch --node-range node${{ matrix.target-node }} --arch ${{ matrix.target-arch }} --platform windows --output dist ${{ github.event.inputs.pkg-fetch-args }}
+        timeout-minutes: 180
+
+      - run: dir dist
+
+      - name: Check if binary is compiled
+        id: check_file
+        run: |
+          if (Test-Path -Path dist\\*.sha256sum -PathType Leaf) { echo "::set-output name=EXISTS::true" } else { echo "::set-output name=EXISTS::false" }
+
+      - uses: actions/upload-artifact@v2
+        if: steps.check_file.outputs.EXISTS == 'true'
+        with:
+          name: binaries
+          path: dist\\
+
+  macos-binaries:
+    runs-on: macos-latest
+    timeout-minutes: 120
+
+    strategy:
+      fail-fast: true
+      matrix:
+        target-node: [14]
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Use Node.js 14 for base work
+        uses: actions/setup-node@v1
+        with:
+          node-version: 14
+
+      - run: npm ci
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.ACTION_CI }}
+
+      - run: npx pkg-fetch --node-range node${{ matrix.target-node }} --platform macos --output dist ${{ github.event.inputs.pkg-fetch-args }}
+        timeout-minutes: 90
+
+      - run: ls -l dist
+
+      - name: Check if binary is compiled
+        id: check_file
+        run: |
+          (test -f dist/*.sha256sum && echo ::set-output name=EXISTS::true) || echo ::set-output name=EXISTS::false
+
+      - uses: actions/upload-artifact@v2
+        if: steps.check_file.outputs.EXISTS == 'true'
+        with:
+          name: binaries
+          path: dist/
+
+  linux-binaries:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+
+    strategy:
+      fail-fast: true
+      matrix:
+        target-node: [14]
+        target-arch: [x64] #, arm64
+        include:
+          - target-arch: x64
+            target-toolchain: x86_64
+          # - target-arch: arm64
+          #   target-toolchain: aarch64
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Use Node.js 14 for base work
+        uses: actions/setup-node@v1
+        with:
+          node-version: 14
+
+      - run: npm ci
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.ACTION_CI }}
+
+      - run: npx pkg-fetch --node-range node${{ matrix.target-node }} --arch ${{ matrix.target-arch }} --platform linux --output dist ${{ github.event.inputs.pkg-fetch-args }}
+        timeout-minutes: 120
+
+      - run: ls -l dist
+
+      - name: Check if binary is compiled
+        id: check_file
+        run: |
+          (test -f dist/*.sha256sum && echo ::set-output name=EXISTS::true) || echo ::set-output name=EXISTS::false
+
+      - uses: actions/upload-artifact@v2
+        if: steps.check_file.outputs.EXISTS == 'true'
+        with:
+          name: binaries
+          path: dist/
+
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [windows-binaries, macos-binaries, linux-binaries]
+    strategy:
+      fail-fast: true
+      matrix:
+        target-node: [14]
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Use Node.js 14 for base work
+        uses: actions/setup-node@v1
+        with:
+          node-version: 14
+          always-auth: true
+          registry-url: https://npm.pkg.github.com
+          scope: '@tufan-io'
+
+      - run: npm ci
+
+      - run: npm install @tufan-io/scatter-bin --no-save
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.ACTION_CI }}
+
+      - uses: actions/download-artifact@v2
+        with:
+          name: binaries
+          path: dist/
+
+      - run: ls -l dist
+
+      - run: npx scatter-bin upload --repo tufan-io/tufan-pkg-fetch --dir dist
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.ACTION_CI }}
+          GITHUB_TOKEN: ${{ secrets.ACTION_CI }}
+
+      - name: finally, delete artifacts. GH storage is needlessly expensive
+        uses: tufan-io/delete-artifact@v2
+        with:
+          name: binaries
+          failOnError: false

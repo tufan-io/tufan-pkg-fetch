@@ -1,0 +1,19 @@
+{
+  "name": "@tufan-io/tufan-pkg-fetch",
+  "version": "1.0.0",
+  "description": "tufan-io wrapper around vercel/pkg-fetch",
+  "main": "index.js",
+  "files": [
+    "patches"
+  ],
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "sramam",
+  "license": "ISC",
+  "dependencies": {
+    "pkg-dir": "^5.0.0",
+    "pkg-fetch": "github:tufan-io/pkg-fetch"
+  }
+}
